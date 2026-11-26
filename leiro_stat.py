@@ -26,7 +26,7 @@ Kimenetek (a futtatás mappájában):
   leiro_statisztikak_osszesito.xlsx   minden leíró statisztika és a javasolt modellváltozat
   modell_adatok.xlsx                  a javasolt változatok országonként, a felhasznált évekkel
   regresszio_kezeletlen_arany.xlsx    a K modell minden eredménye
-  regresszio_eredmenyek.xlsx          a B modell
+  regresszio_eredmenyek.xlsx          a B modell (teljes minta és a mért országok)
   regresszio_halalozas_kulonbseg.xlsx a H1/H2 célváltozók és a parciális korrelációk
   regresszio_modelltipus.xlsx         a modelltípus-választás (B és K modell)
   *.png                               a leíró statisztikai és a regressziós ábrák
@@ -273,7 +273,7 @@ def load_worldbank_rugalmas(file_path):
     for col in [c for c in df.columns if c.isdigit()]:
         ertek = df[col].astype(str).str.strip().str.strip('"')
         if sep == ';':
-            ertek = ertek.str.replace(',', '.', regex=False)   
+            ertek = ertek.str.replace(',', '.', regex=False)   # tizedesvessző -> pont
         df[col] = pd.to_numeric(ertek.replace({'..': None, '': None}), errors='coerce')
     return df
 
@@ -301,7 +301,7 @@ def load_ncdrisc(file_path):
     for c in [kezelt, kezelt_also, kezelt_felso, gyak]:
         df[c] = pd.to_numeric(df[c], errors='coerce')
     df['Ev'] = pd.to_numeric(df['Year'], errors='coerce').astype(int)
-    if df[kezelt].max() <= 1:
+    if df[kezelt].max() <= 1:                    # hányad -> %
         for c in [kezelt, kezelt_also, kezelt_felso]:
             df[c] = df[c] * 100
     if 'Sex' in df.columns and not df['Sex'].str.contains('Both', case=False).any():
@@ -376,7 +376,7 @@ def who_hosszu(df, ev=None, dim1=None, orszag_oszlop='Location', ev_oszlop='Peri
     return ki
 
 
-# Szöveges értékek számmá alakítása
+# Szöveges értékek számmá alakítása, pl. '25.3 [20.1-30.5]' -> 25.3, '12 345' -> 12345
 def szamma(sorozat):
     if pd.api.types.is_numeric_dtype(sorozat):
         return sorozat
@@ -634,7 +634,7 @@ def vizsgalat(nev, hosszu, aranyositas=True, egyseg_szorzo=1, per_fo=1, also_ev=
     return df
 
 
-# KIEGÉSZÍTŐ KIÍRÁSOK A DOLGOZAT SZÖVEGÉHEZ -----------------------------------------------------------------------------------------------------------------------
+# KIEGÉSZÍTŐ KIÍRÁSOK A SZAKDOLGOZAT SZÖVEGÉHEZ -----------------------------------------------------------------------------------------------------------------------
 
 def _szam(v, tized=2):
     if pd.isna(v):
@@ -1856,6 +1856,20 @@ if 'Hungary' in reg.index:
     print(f'   Magyarország: {reg.loc["Hungary", "potlas_statusz"]} '
           f'– társai: {sorted(reg.index[(reg["Regio"] == reg.loc["Hungary", "Regio"]) & (reg["aluldiag_arany"] == reg.loc["Hungary", "aluldiag_arany"])].drop("Hungary"))}')
 
+
+# B modell csak a saját felméréses (mért) országokon: ugyanaz a specifikáció, mint a teljes mintán (14. táblázat).
+minta_B_mert = minta_B.loc[minta_B.index.intersection(_mert)]
+m_B_mert = ols(minta_B_mert['log_halal_1000_betegre'], minta_B_mert[valtozok_B])
+print(f'\nB modell csak a mért országokon (N = {int(m_B_mert.nobs)}): az aluldetektálás együtthatója '
+      f'{m_B_mert.params["aluldiag_arany"]:.4f} (p = {m_B_mert.pvalues["aluldiag_arany"]:.3f}); a teljes mintán {beta:.4f} (p = {p_B:.3f}).')
+B_mert_tabla = pd.DataFrame([
+    {'Minta': 'teljes', 'N': int(modell_B.nobs), 'béta': beta, 'p': p_B},
+    {'Minta': 'csak mért országok', 'N': int(m_B_mert.nobs), 'béta': m_B_mert.params['aluldiag_arany'],
+     'p': m_B_mert.pvalues['aluldiag_arany']},
+])
+with pd.ExcelWriter('regresszio_eredmenyek.xlsx', mode='a', engine='openpyxl', if_sheet_exists='replace') as writer:
+    B_mert_tabla.to_excel(writer, sheet_name='B_mert_orszagokon', index=False)
+print('Mentve: regresszio_eredmenyek.xlsx (B_mert_orszagokon munkalap)')
 
 # Keresztvalidált előrejelzési hiba (RMSE) és R² ismételt k-részes keresztvalidációval. A terv(tanito, teszt) függvény adja a
 # két rész magyarázóváltozó-mátrixát; a főkomponenst így minden tanítórészen újraillesztjük, a tesztrész információja nem szivárog be.
